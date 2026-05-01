@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner Absensi SMAN 2 Pare</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center p-4">
+
+    <div class="w-full max-w-md bg-slate-800 p-6 rounded-3xl shadow-2xl border border-slate-700 mt-10">
+        <h1 class="text-xl font-bold text-center mb-1">Scanner Presensi Siswa</h1>
+        <p class="text-blue-400 text-center text-xs mb-6 uppercase">SMAN 2 PARE</p>
+        
+        <!-- Area Scanner -->
+        <div id="reader" class="overflow-hidden rounded-2xl border-2 border-dashed border-slate-600 bg-black"></div>
+
+        <div id="result-label" class="mt-4 p-3 bg-slate-700 rounded-xl text-center text-sm font-medium text-slate-300">
+            Arahkan kamera ke Barcode Kartu Pelajar
+        </div>
+    </div>
+
+    <script>
+        // --- MASUKKAN API URL SHEETDB ANDA DI SINI ---
+        const API_URL = "https://dafarasyid121-arch.github.io/absensi/";
+
+        const html5QrCode = new Html5Qrcode("reader");
+        const config = { 
+            fps: 20, // Lebih cepat menangkap gambar
+            qrbox: { width: 280, height: 150 }, // Area fokus disesuaikan bentuk barcode
+            aspectRatio: 1.0 
+        };
+
+        const qrCodeSuccessCallback = (decodedText, decodedResult) => {
+            // Jika berhasil terdeteksi
+            console.log(`Scan Result: ${decodedText}`);
+            prosesAbsensi(decodedText);
+            
+            // Berhenti scan sebentar agar tidak double entry
+            html5QrCode.pause(true);
+            setTimeout(() => html5QrCode.resume(), 5000);
+        };
+
+        // Mulai Kamera Otomatis
+        html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
+            .catch(err => {
+                document.getElementById('result-label').innerText = "Gagal akses kamera.";
+            });
+
+        async function prosesAbsensi(kode) {
+            document.getElementById('result-label').innerText = "Memproses kode: " + kode;
+            
+            try {
+                // 1. Cek di Sheet Master
+                const res = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
+                const data = await res.json();
+
+                if (data.length > 0) {
+                    const namaSiswa = data[0].nama;
+                    const waktu = new Date().toLocaleString('id-ID');
+
+                    // 2. Kirim ke Sheet Log
+                    await fetch(`${API_URL}?sheet=Log`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            "waktu_scan": waktu,
+                            "kode": kode,
+                            "nama": namaSiswa
+                        })
+                    });
+
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Berhasil Presensi!',
+                        text: `Siswa: ${namaSiswa}`,
+                        timer: 3000
+                    });
+                    document.getElementById('result-label').innerText = "Terakhir: " + namaSiswa;
+                } else {
+                    Swal.fire('Gagal', 'Kode ' + kode + ' tidak ada di Data Master', 'error');
+                }
+            } catch (error) {
+                console.error(error);
+                document.getElementById('result-label').innerText = "Kesalahan Database.";
+            }
+        }
+    </script>
+
+    <style>
+        /* Membersihkan tampilan library agar lebih rapi */
+        #reader { border: none !important; }
+        #reader video { border-radius: 1rem; object-fit: cover; }
+    </style>
+</body>
+</html>
