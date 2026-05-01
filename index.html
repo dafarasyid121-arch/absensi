@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Presensi Siswa SMAN 2 Pare</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        #reader video { border-radius: 2rem; object-fit: cover; }
+        .scan-region-highlight { border-radius: 1rem !important; outline: none !important; }
+        /* Animasi garis pindai yang lebih halus */
+        .scanner-line {
+            position: absolute;
+            top: 10%;
+            left: 10%;
+            right: 10%;
+            height: 3px;
+            background: #3b82f6;
+            box-shadow: 0 0 15px #3b82f6;
+            border-radius: 10px;
+            animation: scanAnim 2s infinite ease-in-out;
+            z-index: 10;
+        }
+        @keyframes scanAnim {
+            0%, 100% { top: 20%; opacity: 0.5; }
+            50% { top: 80%; opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-white min-h-screen flex flex-col items-center p-4 font-sans">
+
+    <div class="w-full max-w-md bg-[#1e293b] p-8 rounded-[3rem] shadow-2xl border border-slate-700 mt-10 relative">
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-black tracking-tighter text-white">PRESENSI SISWA</h1>
+            <p class="text-blue-400 text-xs font-bold uppercase tracking-[0.2em]">SMAN 2 PARE</p>
+        </div>
+        
+        <div class="relative group">
+            <div id="reader" class="overflow-hidden rounded-[2rem] border-4 border-slate-700 bg-black"></div>
+            <!-- Garis Animasi -->
+            <div class="scanner-line"></div>
+        </div>
+
+        <div id="result-label" class="mt-8 p-4 bg-slate-900 rounded-2xl text-center text-sm font-bold text-blue-400 border border-blue-500/30">
+            Arahkan ke Barcode Kartu Pelajar
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
+        const html5QrCode = new Html5Qrcode("reader");
+
+        const config = { 
+            fps: 40, 
+            qrbox: { width: 280, height: 120 }, // Kotak dipersempit agar fokus ke satu barcode saja
+            aspectRatio: 1.0,
+            // HANYA membaca Code 128 (format kartu pelajar)
+            formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_128 ]
+        };
+
+        const onScanSuccess = (decodedText) => {
+            // Validasi: NIS Kartu Pelajar biasanya 5-10 digit. 
+            // Jika yang terbaca angka sangat panjang (seperti 4528...), abaikan.
+            if (decodedText.length > 10) return; 
+
+            html5QrCode.pause(true);
+            if (navigator.vibrate) navigator.vibrate(80);
+            prosesAbsensi(decodedText);
+        };
+
+        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
+
+        async function prosesAbsensi(kode) {
+            const cleanKode = kode.trim();
+            document.getElementById('result-label').innerText = "MEMVERIFIKASI: " + cleanKode;
+
+            try {
+                const res = await fetch(`${API_URL}/search?sheet=Master&kode=${cleanKode}&casesensitive=false`);
+                const data = await res.json();
+
+                if (data && data.length > 0) {
+                    const siswa = data[0];
+                    const sekarang = new Date();
+                    const waktuLog = `${sekarang.toLocaleTimeString('id-ID').replace(/\./g, ':')}, ${sekarang.toLocaleDateString('id-ID')}`;
+
+                    // Kirim Log
+                    fetch(`${API_URL}?sheet=Log`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            "WAKTU": waktuLog,
+                            "KODE": cleanKode,
+                            "NAMA": siswa.nama
+                        })
+                    });
+
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Presensi Berhasil',
+                        html: `<div class="text-left bg-slate-100 p-4 rounded-xl text-slate-800 font-sans">
+                                <p><b>Selamat Datang!</b></p>
+                                <p class="text-lg font-bold text-blue-600">${siswa.nama}</p>
+                                <hr class="my-2">
+                                <p class="text-sm italic text-slate-500">Kelas ${siswa.kelas} | ${waktuLog}</p>
+                               </div>`,
+                        showConfirmButton: false,
+                        timer: 2500
+                    });
+
+                    document.getElementById('result-label').innerText = "Terakhir: " + siswa.nama;
+                } else {
+                    Swal.fire({
+                        title: 'Tidak Terdaftar',
+                        text: `Kode ${cleanKode} tidak ada di Master.`,
+                        icon: 'warning',
+                        confirmButtonColor: '#3b82f6'
+                    });
+                }
+            } catch (error) {
+                document.getElementById('result-label').innerText = "Gangguan Database.";
+            } finally {
+                setTimeout(() => {
+                    html5QrCode.resume();
+                    document.getElementById('result-label').innerText = "Siap Memindai...";
+                }, 4000);
+            }
+        }
+    </script>
+</body>
+</html>
