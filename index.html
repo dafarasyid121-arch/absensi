@@ -3,136 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Presensi Siswa SMAN 2 Pare</title>
+    <title>Scanner SMAN 2 Pare</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@zxing/library@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        #video { width: 100%; height: 100%; object-fit: cover; }
-        .scanner-container {
-            position: relative; width: 100%; max-width: 400px; aspect-ratio: 1/1;
-            background: black; border-radius: 3rem; overflow: hidden;
-            border: 4px solid #1e293b;
+        #video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+        .scan-wrapper { 
+            position: relative; width: 100%; max-width: 350px; aspect-ratio: 1/1; 
+            margin: auto; border-radius: 2rem; overflow: hidden; border: 4px solid #1e293b;
         }
-        .overlay {
-            position: absolute; inset: 0;
-            background: radial-gradient(circle, transparent 150px, rgba(0,0,0,0.8) 150px);
-            z-index: 10;
+        .laser-line {
+            position: absolute; top: 50%; left: 0; right: 0; height: 4px;
+            background: #ff0000; box-shadow: 0 0 15px #ff0000; z-index: 20;
+            animation: scanAnim 2.5s infinite linear;
         }
-        .scan-line {
-            position: absolute; top: 50%; left: 10%; right: 10%; height: 2px;
-            background: #ef4444; box-shadow: 0 0 15px #ef4444; z-index: 20;
-            animation: move 2s infinite ease-in-out;
-        }
-        @keyframes move {
-            0%, 100% { transform: translateY(-60px); }
-            50% { transform: translateY(60px); }
+        @keyframes scanAnim {
+            0% { transform: translateY(-120px); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: translateY(120px); opacity: 0; }
         }
     </style>
 </head>
-<body class="bg-[#020617] text-white min-h-screen flex flex-col items-center justify-center p-4">
+<body class="bg-[#020617] text-white min-h-screen flex flex-col items-center justify-center p-6">
 
     <div class="w-full max-w-md text-center">
-        <h1 class="text-3xl font-black mb-1">PRESENSI SISWA</h1>
-        <p class="text-blue-500 text-xs font-bold tracking-[0.4em] mb-8 uppercase">SMAN 2 PARE • FIX ENGINE</p>
+        <h2 class="text-2xl font-black mb-2 tracking-widest text-blue-500">SYSTEM SCANNER</h2>
+        <p class="text-xs text-slate-500 mb-8 font-bold uppercase">SMAN 2 PARE • VERSION 4.0</p>
 
-        <div class="scanner-container mx-auto shadow-2xl">
-            <video id="video"></video>
-            <div class="overlay"></div>
-            <div class="scan-line"></div>
+        <div class="scan-wrapper shadow-2xl">
+            <video id="video" playsinline></video>
+            <div class="laser-line"></div>
         </div>
 
-        <div class="mt-8 p-5 bg-slate-900 rounded-[2rem] border border-slate-800">
-            <p id="status" class="text-blue-400 font-bold">MENGHUBUNGKAN KAMERA...</p>
-            <button onclick="location.reload()" class="mt-3 text-xs bg-slate-800 px-4 py-2 rounded-full border border-slate-700">Muat Ulang Kamera</button>
+        <div class="mt-10 space-y-4">
+            <p id="status" class="text-sm font-mono text-slate-400">Status: Initializing...</p>
+            <div class="flex gap-2 justify-center">
+                <button onclick="forceStart()" class="bg-blue-600 px-6 py-3 rounded-xl font-bold text-sm">PAKSA START</button>
+                <button onclick="location.reload()" class="bg-slate-800 px-6 py-3 rounded-xl font-bold text-sm">RELOAD</button>
+            </div>
         </div>
     </div>
 
     <script>
         const codeReader = new ZXing.BrowserMultiFormatReader();
-        const statusText = document.getElementById('status');
         const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
         let isLocked = false;
 
-        async function startScanner() {
+        async function forceStart() {
+            const status = document.getElementById('status');
+            status.innerText = "Memaksa akses kamera...";
+
             try {
-                const videoDevices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-                
-                // FIX: Cari kamera belakang secara spesifik
-                const backCamera = videoDevices.find(device => 
-                    device.label.toLowerCase().includes('back') || 
-                    device.label.toLowerCase().includes('rear') ||
-                    device.label.toLowerCase().includes('environment')
-                );
-
-                const deviceId = backCamera ? backCamera.deviceId : videoDevices[0].deviceId;
-
-                statusText.innerText = "AI SCANNER READY";
-
-                // Memulai scanning
-                codeReader.decodeFromVideoDevice(deviceId, 'video', (result, err) => {
-                    if (result && !isLocked) {
-                        const kode = result.getText();
-                        // Hanya proses jika panjang kode wajar (NIS 5-10 digit)
-                        if (kode.length <= 10) {
-                            successAction(kode);
-                        }
-                    }
+                // Mencoba mendapatkan stream manual terlebih dahulu untuk "membangunkan" hardware
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: { exact: "environment" } 
+                    } 
+                }).catch(() => {
+                    // Fallback jika 'exact environment' gagal (untuk beberapa tipe HP)
+                    return navigator.mediaDevices.getUserMedia({ video: true });
                 });
 
+                const videoElement = document.getElementById('video');
+                videoElement.srcObject = stream;
+                
+                status.innerText = "Kamera Terhubung. Mencari Barcode...";
+                startDecoding();
             } catch (err) {
-                console.error(err);
-                statusText.innerText = "ERROR: IZINKAN KAMERA!";
-                Swal.fire('Kamera Error', 'Pastikan izin kamera sudah diberikan di browser.', 'error');
+                status.innerText = "Gagal: " + err.name;
+                Swal.fire('Hardware Error', 'Kamera mungkin sedang digunakan aplikasi lain atau tidak mendukung akses web.', 'error');
             }
         }
 
-        function successAction(kode) {
-            isLocked = true;
-            if (navigator.vibrate) navigator.vibrate(100);
-            statusText.innerText = "KODE TERDETEKSI: " + kode;
-            prosesAbsensi(kode);
-        }
-
-        async function prosesAbsensi(kode) {
-            try {
-                const res = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
-                const data = await res.json();
-
-                if (data && data.length > 0) {
-                    const siswa = data[0];
-                    const sekarang = new Date();
-                    const waktu = `${sekarang.toLocaleTimeString('id-ID').replace(/\./g, ':')}, ${sekarang.toLocaleDateString('id-ID')}`;
-
-                    // Kirim Log
-                    fetch(`${API_URL}?sheet=Log`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ "WAKTU": waktu, "KODE": kode, "NAMA": siswa.nama })
-                    });
-
-                    Swal.fire({
-                        title: 'BERHASIL',
-                        text: `Halo, ${siswa.nama}!`,
-                        icon: 'success',
-                        timer: 2000,
-                        showConfirmButton: false
-                    });
-                } else {
-                    Swal.fire('Tidak Dikenal', `Kode ${kode} tidak ada di Master.`, 'warning');
+        function startDecoding() {
+            codeReader.decodeFromVideoElement(document.getElementById('video'), (result, err) => {
+                if (result && !isLocked) {
+                    isLocked = true;
+                    processData(result.getText());
                 }
-            } catch (e) {
-                statusText.innerText = "KONEKSI ERROR";
-            } finally {
-                setTimeout(() => {
-                    isLocked = false;
-                    statusText.innerText = "SIAP MEMINDAI...";
-                }, 3000);
-            }
+            });
         }
 
-        // Jalankan saat halaman siap
-        window.addEventListener('load', startScanner);
+        function processData(kode) {
+            if (navigator.vibrate) navigator.vibrate(200);
+            document.getElementById('status').innerText = "Scanning: " + kode;
+
+            fetch(`${API_URL}/search?sheet=Master&kode=${kode}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.length > 0) {
+                        const siswa = data[0];
+                        Swal.fire({ title: 'SUKSES', text: `Selamat Datang, ${siswa.nama}`, icon: 'success', timer: 2000, showConfirmButton: false });
+                        
+                        // Log ke sheet
+                        const d = new Date();
+                        fetch(`${API_URL}?sheet=Log`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                "WAKTU": `${d.toLocaleTimeString()}, ${d.toLocaleDateString()}`, 
+                                "KODE": kode, 
+                                "NAMA": siswa.nama 
+                            })
+                        });
+                    } else {
+                        Swal.fire('Error', 'ID Tidak Terdaftar', 'error');
+                    }
+                    setTimeout(() => { isLocked = false; }, 3000);
+                });
+        }
+
+        // Jalankan otomatis saat load
+        window.addEventListener('load', forceStart);
     </script>
 </body>
 </html>
