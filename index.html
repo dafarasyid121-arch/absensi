@@ -4,139 +4,171 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner SMAN 2 Pare</title>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@zxing/library@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <style>
-        #video { width: 100%; height: 100%; object-fit: cover; }
-        .scanner-box { 
-            position: relative; width: 100%; max-width: 320px; aspect-ratio: 1/1; 
-            margin: auto; border-radius: 2.5rem; overflow: hidden; border: 4px solid #3b82f6;
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
-        /* Efek Pulse saat menangkap gambar */
-        .capturing { animation: flash 0.2s ease-out; }
-        @keyframes flash { 0% { opacity: 0.5; } 100% { opacity: 1; } }
-        
+
+        .scanner-box {
+            position: relative;
+            width: 100%;
+            max-width: 320px;
+            aspect-ratio: 1/1;
+            margin: auto;
+            border-radius: 2.5rem;
+            overflow: hidden;
+            border: 4px solid #3b82f6;
+        }
+
+        .capturing {
+            animation: flash 0.2s ease-out;
+        }
+
+        @keyframes flash {
+            0% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
         .scan-line {
-            position: absolute; top: 50%; left: 0; right: 0; height: 2px;
-            background: #3b82f6; box-shadow: 0 0 15px #3b82f6; z-index: 10;
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #3b82f6;
+            box-shadow: 0 0 15px #3b82f6;
+            z-index: 10;
             animation: moveLine 2s infinite linear;
         }
-        @keyframes moveLine { 0% { top: 20%; } 100% { top: 80%; } }
+
+        @keyframes moveLine {
+            0% { top: 20%; }
+            100% { top: 80%; }
+        }
     </style>
 </head>
+
 <body class="bg-slate-950 text-white min-h-screen flex flex-col items-center justify-center p-6">
 
     <div class="w-full max-w-md text-center">
         <h1 class="text-2xl font-black mb-1">SMAN 2 PARE</h1>
-        <p class="text-blue-500 text-[10px] font-bold tracking-[0.3em] mb-8 uppercase">Auto-Capture Snapshot Mode</p>
+        <p class="text-blue-500 text-[10px] font-bold tracking-[0.3em] mb-8 uppercase">
+            Fast Realtime Scanner
+        </p>
 
         <div id="wrapper" class="scanner-box shadow-2xl bg-black">
             <video id="video" playsinline></video>
             <div class="scan-line"></div>
-            <!-- Canvas Tersembunyi untuk Proses Snapshot -->
-            <canvas id="snapshot" class="hidden"></canvas>
         </div>
 
         <div class="mt-8">
-            <p id="status" class="text-sm font-medium text-slate-400">Mencari Fokus Terbaik...</p>
+            <p id="status" class="text-sm font-medium text-slate-400">
+                Mengaktifkan kamera...
+            </p>
         </div>
     </div>
 
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('snapshot');
-        const status = document.getElementById('status');
-        const wrapper = document.getElementById('wrapper');
-        const codeReader = new ZXing.BrowserMultiFormatReader();
-        const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
-        
-        let isProcessing = false;
+<script>
+const video = document.getElementById('video');
+const status = document.getElementById('status');
+const wrapper = document.getElementById('wrapper');
 
-        async function initScanner() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: "environment",
-                        width: { ideal: 1280 }, // Resolusi HD agar barcode kecil terbaca
-                        height: { ideal: 720 }
-                    }
+const codeReader = new ZXing.BrowserMultiFormatReader();
+const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
+
+let isProcessing = false;
+let lastScan = 0;
+
+async function initScanner() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: "environment",
+                width: { ideal: 640 },   // lebih ringan & cepat
+                height: { ideal: 480 }
+            }
+        });
+
+        video.srcObject = stream;
+        await video.play();
+
+        status.innerText = "Arahkan barcode ke kamera";
+
+        // 🔥 REALTIME SCAN (SUPER CEPAT)
+        codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+            if (result && !isProcessing) {
+                handleMatch(result.getText());
+            }
+        });
+
+    } catch (err) {
+        status.innerText = "Kamera tidak tersedia";
+    }
+}
+
+function handleMatch(kode) {
+    const now = Date.now();
+
+    // ⛔ cegah scan double
+    if (now - lastScan < 2000) return;
+    lastScan = now;
+
+    isProcessing = true;
+
+    wrapper.classList.add('capturing');
+    if (navigator.vibrate) navigator.vibrate(150);
+
+    status.innerText = "Terdeteksi: " + kode;
+
+    fetch(`${API_URL}/search?sheet=Master&kode=${kode}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.length > 0) {
+                const siswa = data[0];
+
+                Swal.fire({
+                    title: 'BERHASIL',
+                    text: siswa.nama,
+                    icon: 'success',
+                    timer: 1500,
+                    showConfirmButton: false
                 });
-                video.srcObject = stream;
-                video.play();
-                
-                // Mulai siklus auto-capture
-                setTimeout(autoCapture, 1000);
-            } catch (err) {
-                status.innerText = "Kamera tidak terdeteksi.";
-            }
-        }
 
-        async function autoCapture() {
-            if (isProcessing) {
-                requestAnimationFrame(autoCapture);
-                return;
-            }
+                const skrg = new Date();
 
-            // Ambil snapshot gambar diam dari video
-            const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            try {
-                // Pindai gambar diam (Snapshot), bukan video stream langsung
-                // Ini jauh lebih akurat karena gambar tidak bergerak
-                const result = await codeReader.decodeFromCanvas(canvas);
-                if (result) {
-                    handleMatch(result.getText());
-                }
-            } catch (err) {
-                // Jika gagal (belum fokus), ulangi terus
-                requestAnimationFrame(autoCapture);
-            }
-        }
-
-        function handleMatch(kode) {
-            isProcessing = true;
-            wrapper.classList.add('capturing'); // Efek visual jepret
-            if (navigator.vibrate) navigator.vibrate(150);
-            
-            status.innerText = "TERDETEKSI: " + kode;
-            
-            // Proses ke Database
-            fetch(`${API_URL}/search?sheet=Master&kode=${kode}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data.length > 0) {
-                        const siswa = data[0];
-                        Swal.fire({ title: 'BERHASIL', text: siswa.nama, icon: 'success', timer: 2000, showConfirmButton: false });
-                        
-                        // Kirim Log
-                        const skrg = new Date();
-                        fetch(`${API_URL}?sheet=Log`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                "WAKTU": `${skrg.toLocaleTimeString()}, ${skrg.toLocaleDateString()}`, 
-                                "KODE": kode, "NAMA": siswa.nama 
-                            })
-                        });
-                    } else {
-                        Swal.fire('Error', 'Siswa tidak ditemukan', 'error');
-                    }
-                    
-                    // Beri jeda 3 detik sebelum siap scan lagi
-                    setTimeout(() => {
-                        isProcessing = false;
-                        wrapper.classList.remove('capturing');
-                        status.innerText = "Mencari Fokus Terbaik...";
-                        autoCapture();
-                    }, 3000);
+                // kirim log
+                fetch(`${API_URL}?sheet=Log`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        "WAKTU": `${skrg.toLocaleTimeString()}, ${skrg.toLocaleDateString()}`,
+                        "KODE": kode,
+                        "NAMA": siswa.nama
+                    })
                 });
-        }
 
-        window.onload = initScanner;
-    </script>
+            } else {
+                Swal.fire('Error', 'Siswa tidak ditemukan', 'error');
+            }
+
+            // ⏱ jeda scan (lebih cepat dari sebelumnya)
+            setTimeout(() => {
+                isProcessing = false;
+                wrapper.classList.remove('capturing');
+                status.innerText = "Siap scan...";
+            }, 1500);
+        });
+}
+
+window.onload = initScanner;
+</script>
+
 </body>
 </html>
