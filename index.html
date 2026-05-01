@@ -8,96 +8,89 @@
     <script src="https://unpkg.com/@zxing/library@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        #video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.1); }
-        .scanner-window {
-            position: relative; width: 320px; height: 200px; 
-            margin: auto; border: 2px solid rgba(59, 130, 246, 0.3);
-            border-radius: 1.5rem; overflow: hidden;
-            box-shadow: 0 0 0 1000px rgba(2, 6, 23, 0.85);
+        #video { width: 100%; height: 100%; object-fit: cover; }
+        .scanner-container {
+            position: relative; width: 100%; max-width: 400px; aspect-ratio: 1/1;
+            background: black; border-radius: 3rem; overflow: hidden;
+            border: 4px solid #1e293b;
         }
-        .laser {
-            position: absolute; top: 50%; left: 5%; right: 5%; height: 2px;
-            background-color: #ef4444; box-shadow: 0 0 12px #ef4444;
-            z-index: 30; animation: laserMove 1.5s infinite ease-in-out;
+        .overlay {
+            position: absolute; inset: 0;
+            background: radial-gradient(circle, transparent 150px, rgba(0,0,0,0.8) 150px);
+            z-index: 10;
         }
-        @keyframes laserMove {
-            0%, 100% { transform: translateY(-80px); opacity: 0.2; }
-            50% { transform: translateY(80px); opacity: 1; }
+        .scan-line {
+            position: absolute; top: 50%; left: 10%; right: 10%; height: 2px;
+            background: #ef4444; box-shadow: 0 0 15px #ef4444; z-index: 20;
+            animation: move 2s infinite ease-in-out;
         }
-        .corner { position: absolute; width: 25px; height: 25px; border: 4px solid #3b82f6; z-index: 40; }
-        .tl { top: 0; left: 0; border-right: 0; border-bottom: 0; border-radius: 1rem 0 0 0; }
-        .tr { top: 0; right: 0; border-left: 0; border-bottom: 0; border-radius: 0 1rem 0 0; }
-        .bl { bottom: 0; left: 0; border-right: 0; border-top: 0; border-radius: 0 0 0 1rem; }
-        .br { bottom: 0; right: 0; border-left: 0; border-top: 0; border-radius: 0 0 1rem 0; }
+        @keyframes move {
+            0%, 100% { transform: translateY(-60px); }
+            50% { transform: translateY(60px); }
+        }
     </style>
 </head>
-<body class="bg-[#020617] text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="bg-[#020617] text-white min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div class="w-full max-w-lg text-center">
-        <div class="mb-6">
-            <h1 class="text-3xl font-black tracking-tighter text-white">PRESENSI SISWA</h1>
-            <p class="text-blue-500 text-xs font-bold tracking-[0.4em] uppercase">SMAN 2 PARE • HIGH-SPEED ENGINE</p>
-        </div>
+    <div class="w-full max-w-md text-center">
+        <h1 class="text-3xl font-black mb-1">PRESENSI SISWA</h1>
+        <p class="text-blue-500 text-xs font-bold tracking-[0.4em] mb-8 uppercase">SMAN 2 PARE • FIX ENGINE</p>
 
-        <div class="relative w-full aspect-square flex items-center justify-center rounded-[3rem] overflow-hidden bg-black border border-slate-800">
+        <div class="scanner-container mx-auto shadow-2xl">
             <video id="video"></video>
-            
-            <div class="absolute inset-0 flex items-center justify-center z-20">
-                <div class="scanner-window">
-                    <div class="laser"></div>
-                    <div class="corner tl"></div><div class="corner tr"></div>
-                    <div class="corner bl"></div><div class="corner br"></div>
-                </div>
-            </div>
+            <div class="overlay"></div>
+            <div class="scan-line"></div>
         </div>
 
-        <div class="mt-8 bg-slate-900/80 p-5 rounded-[2rem] border border-slate-800 shadow-xl">
-            <p id="status" class="text-blue-400 font-bold animate-pulse">SIAP MEMINDAI...</p>
+        <div class="mt-8 p-5 bg-slate-900 rounded-[2rem] border border-slate-800">
+            <p id="status" class="text-blue-400 font-bold">MENGHUBUNGKAN KAMERA...</p>
+            <button onclick="location.reload()" class="mt-3 text-xs bg-slate-800 px-4 py-2 rounded-full border border-slate-700">Muat Ulang Kamera</button>
         </div>
     </div>
 
     <script>
         const codeReader = new ZXing.BrowserMultiFormatReader();
-        const videoElement = document.getElementById('video');
         const statusText = document.getElementById('status');
         const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
         let isLocked = false;
 
-        // Inisialisasi Kamera & Scanner
-        async function initScanner() {
+        async function startScanner() {
             try {
                 const videoDevices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-                const selectedDeviceId = videoDevices[0].deviceId;
+                
+                // FIX: Cari kamera belakang secara spesifik
+                const backCamera = videoDevices.find(device => 
+                    device.label.toLowerCase().includes('back') || 
+                    device.label.toLowerCase().includes('rear') ||
+                    device.label.toLowerCase().includes('environment')
+                );
 
-                // Konfigurasi Decoding Barcode
-                const hints = new Map();
-                hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-                    ZXing.BarcodeFormat.CODE_128,
-                    ZXing.BarcodeFormat.CODE_39,
-                    ZXing.BarcodeFormat.EAN_13
-                ]);
-                hints.set(ZXing.DecodeHintType.TRY_HARDER, true); // AI Mode: Cari barcode meski miring/kecil
+                const deviceId = backCamera ? backCamera.deviceId : videoDevices[0].deviceId;
 
-                codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
+                statusText.innerText = "AI SCANNER READY";
+
+                // Memulai scanning
+                codeReader.decodeFromVideoDevice(deviceId, 'video', (result, err) => {
                     if (result && !isLocked) {
                         const kode = result.getText();
-                        // Filter digit (Kartu SMAN 2 Pare 16791)
-                        if (kode.length <= 12) {
-                            handleMatch(kode);
+                        // Hanya proses jika panjang kode wajar (NIS 5-10 digit)
+                        if (kode.length <= 10) {
+                            successAction(kode);
                         }
                     }
                 });
 
-                console.log("Scanner Started");
             } catch (err) {
-                statusText.innerText = "Kamera Bermasalah.";
+                console.error(err);
+                statusText.innerText = "ERROR: IZINKAN KAMERA!";
+                Swal.fire('Kamera Error', 'Pastikan izin kamera sudah diberikan di browser.', 'error');
             }
         }
 
-        function handleMatch(kode) {
+        function successAction(kode) {
             isLocked = true;
-            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-            statusText.innerText = "DITEMUKAN: " + kode;
+            if (navigator.vibrate) navigator.vibrate(100);
+            statusText.innerText = "KODE TERDETEKSI: " + kode;
             prosesAbsensi(kode);
         }
 
@@ -111,7 +104,7 @@
                     const sekarang = new Date();
                     const waktu = `${sekarang.toLocaleTimeString('id-ID').replace(/\./g, ':')}, ${sekarang.toLocaleDateString('id-ID')}`;
 
-                    // Kirim Log (Background)
+                    // Kirim Log
                     fetch(`${API_URL}?sheet=Log`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -119,26 +112,27 @@
                     });
 
                     Swal.fire({
-                        title: 'SUKSES',
-                        html: `<b class="text-xl text-blue-600">${siswa.nama}</b><br>Berhasil Presensi`,
+                        title: 'BERHASIL',
+                        text: `Halo, ${siswa.nama}!`,
                         icon: 'success',
-                        timer: 1500,
+                        timer: 2000,
                         showConfirmButton: false
                     });
                 } else {
-                    Swal.fire('Data Tidak Ada', `Kode ${kode} tidak terdaftar di Master.`, 'warning');
+                    Swal.fire('Tidak Dikenal', `Kode ${kode} tidak ada di Master.`, 'warning');
                 }
             } catch (e) {
-                statusText.innerText = "GANGGUAN KONEKSI";
+                statusText.innerText = "KONEKSI ERROR";
             } finally {
                 setTimeout(() => {
                     isLocked = false;
                     statusText.innerText = "SIAP MEMINDAI...";
-                }, 2500);
+                }, 3000);
             }
         }
 
-        window.addEventListener('load', initScanner);
+        // Jalankan saat halaman siap
+        window.addEventListener('load', startScanner);
     </script>
 </body>
 </html>
