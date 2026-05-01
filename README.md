@@ -1,2 +1,0 @@
-# absensi
-ABSENSI
