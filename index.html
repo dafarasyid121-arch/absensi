@@ -5,98 +5,103 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Presensi Siswa SMAN 2 Pare</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@zxing/library@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        body { background-color: #020617; }
-        video { width: 100%; height: 100%; object-fit: cover; border-radius: 2rem; }
-        .scanner-frame {
-            position: relative; width: 100%; max-width: 350px; aspect-ratio: 1/1;
-            margin: auto; border: 2px solid #1e293b; border-radius: 2.5rem; overflow: hidden;
+        #video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.1); }
+        .scanner-window {
+            position: relative; width: 320px; height: 200px; 
+            margin: auto; border: 2px solid rgba(59, 130, 246, 0.3);
+            border-radius: 1.5rem; overflow: hidden;
+            box-shadow: 0 0 0 1000px rgba(2, 6, 23, 0.85);
         }
-        /* Overlay seperti Google Lens */
-        .lens-corner {
-            position: absolute; width: 30px; height: 30px; border: 4px solid #3b82f6; z-index: 20;
+        .laser {
+            position: absolute; top: 50%; left: 5%; right: 5%; height: 2px;
+            background-color: #ef4444; box-shadow: 0 0 12px #ef4444;
+            z-index: 30; animation: laserMove 1.5s infinite ease-in-out;
         }
-        .tl { top: 20px; left: 20px; border-right: 0; border-bottom: 0; border-radius: 8px 0 0 0; }
-        .tr { top: 20px; right: 20px; border-left: 0; border-bottom: 0; border-radius: 0 8px 0 0; }
-        .bl { bottom: 20px; left: 20px; border-right: 0; border-top: 0; border-radius: 0 0 0 8px; }
-        .br { bottom: 20px; right: 20px; border-left: 0; border-top: 0; border-radius: 0 0 8px 0; }
-        
-        .scan-bar {
-            position: absolute; width: 100%; height: 2px; background: #3b82f6;
-            box-shadow: 0 0 20px #3b82f6; animation: scanMove 1.5s infinite linear;
+        @keyframes laserMove {
+            0%, 100% { transform: translateY(-80px); opacity: 0.2; }
+            50% { transform: translateY(80px); opacity: 1; }
         }
-        @keyframes scanMove { 0% { top: 10%; } 100% { top: 90%; } }
+        .corner { position: absolute; width: 25px; height: 25px; border: 4px solid #3b82f6; z-index: 40; }
+        .tl { top: 0; left: 0; border-right: 0; border-bottom: 0; border-radius: 1rem 0 0 0; }
+        .tr { top: 0; right: 0; border-left: 0; border-bottom: 0; border-radius: 0 1rem 0 0; }
+        .bl { bottom: 0; left: 0; border-right: 0; border-top: 0; border-radius: 0 0 0 1rem; }
+        .br { bottom: 0; right: 0; border-left: 0; border-top: 0; border-radius: 0 0 1rem 0; }
     </style>
 </head>
-<body class="text-slate-200 min-h-screen flex flex-col items-center justify-center p-6">
+<body class="bg-[#020617] text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div class="w-full max-w-md text-center">
-        <h1 class="text-3xl font-black tracking-tighter text-white mb-1">PRESENSI SISWA</h1>
-        <p class="text-blue-500 text-xs font-bold tracking-[0.4em] mb-8 uppercase">SMAN 2 PARE • NATIVE AI</p>
-
-        <div class="scanner-frame shadow-[0_0_50px_rgba(59,130,246,0.2)] bg-black">
-            <video id="video" autoplay playsinline></video>
-            <div class="lens-corner tl"></div><div class="lens-corner tr"></div>
-            <div class="lens-corner bl"></div><div class="lens-corner br"></div>
-            <div class="scan-bar"></div>
+    <div class="w-full max-w-lg text-center">
+        <div class="mb-6">
+            <h1 class="text-3xl font-black tracking-tighter text-white">PRESENSI SISWA</h1>
+            <p class="text-blue-500 text-xs font-bold tracking-[0.4em] uppercase">SMAN 2 PARE • HIGH-SPEED ENGINE</p>
         </div>
 
-        <div class="mt-8 p-4 bg-slate-900/50 rounded-2xl border border-slate-800">
-            <p id="status" class="text-blue-400 font-bold text-sm tracking-wide">MENCARI BARCODE...</p>
+        <div class="relative w-full aspect-square flex items-center justify-center rounded-[3rem] overflow-hidden bg-black border border-slate-800">
+            <video id="video"></video>
+            
+            <div class="absolute inset-0 flex items-center justify-center z-20">
+                <div class="scanner-window">
+                    <div class="laser"></div>
+                    <div class="corner tl"></div><div class="corner tr"></div>
+                    <div class="corner bl"></div><div class="corner br"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-8 bg-slate-900/80 p-5 rounded-[2rem] border border-slate-800 shadow-xl">
+            <p id="status" class="text-blue-400 font-bold animate-pulse">SIAP MEMINDAI...</p>
         </div>
     </div>
 
     <script>
-        const video = document.getElementById('video');
+        const codeReader = new ZXing.BrowserMultiFormatReader();
+        const videoElement = document.getElementById('video');
         const statusText = document.getElementById('status');
         const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
-        let isScanning = true;
+        let isLocked = false;
 
-        // Mendukung semua format barcode populer
-        const barcodeDetector = new BarcodeDetector({
-            formats: ['code_128', 'code_39', 'ean_13', 'qr_code']
-        });
-
-        // 1. Jalankan Kamera
-        async function startCamera() {
+        // Inisialisasi Kamera & Scanner
+        async function initScanner() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment", focusMode: "continuous" } 
-                });
-                video.srcObject = stream;
-                render();
-            } catch (err) {
-                statusText.innerText = "Kamera tidak diizinkan.";
-            }
-        }
+                const videoDevices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+                const selectedDeviceId = videoDevices[0].deviceId;
 
-        // 2. Loop Deteksi (Native Speed)
-        async function render() {
-            if (isScanning) {
-                try {
-                    const barcodes = await barcodeDetector.detect(video);
-                    if (barcodes.length > 0) {
-                        const code = barcodes[0].rawValue;
-                        // Filter agar tidak salah scan barcode belanjaan
-                        if (code.length <= 10) {
-                            handleMatch(code);
+                // Konfigurasi Decoding Barcode
+                const hints = new Map();
+                hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+                    ZXing.BarcodeFormat.CODE_128,
+                    ZXing.BarcodeFormat.CODE_39,
+                    ZXing.BarcodeFormat.EAN_13
+                ]);
+                hints.set(ZXing.DecodeHintType.TRY_HARDER, true); // AI Mode: Cari barcode meski miring/kecil
+
+                codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
+                    if (result && !isLocked) {
+                        const kode = result.getText();
+                        // Filter digit (Kartu SMAN 2 Pare 16791)
+                        if (kode.length <= 12) {
+                            handleMatch(kode);
                         }
                     }
-                } catch (e) { /* Loop deteksi */ }
+                });
+
+                console.log("Scanner Started");
+            } catch (err) {
+                statusText.innerText = "Kamera Bermasalah.";
             }
-            requestAnimationFrame(render);
         }
 
         function handleMatch(kode) {
-            isScanning = false;
-            if (navigator.vibrate) navigator.vibrate(100);
+            isLocked = true;
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            statusText.innerText = "DITEMUKAN: " + kode;
             prosesAbsensi(kode);
         }
 
         async function prosesAbsensi(kode) {
-            statusText.innerText = "VERIFIKASI: " + kode;
-            
             try {
                 const res = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
                 const data = await res.json();
@@ -104,37 +109,36 @@
                 if (data && data.length > 0) {
                     const siswa = data[0];
                     const sekarang = new Date();
-                    const jam = sekarang.toLocaleTimeString('id-ID').replace(/\./g, ':');
-                    const tgl = sekarang.toLocaleDateString('id-ID');
+                    const waktu = `${sekarang.toLocaleTimeString('id-ID').replace(/\./g, ':')}, ${sekarang.toLocaleDateString('id-ID')}`;
 
-                    // Post Log ke Google Sheets
+                    // Kirim Log (Background)
                     fetch(`${API_URL}?sheet=Log`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ "WAKTU": `${jam}, ${tgl}`, "KODE": kode, "NAMA": siswa.nama })
+                        body: JSON.stringify({ "WAKTU": waktu, "KODE": kode, "NAMA": siswa.nama })
                     });
 
                     Swal.fire({
-                        title: 'BERHASIL',
-                        text: `Selamat Datang, ${siswa.nama}!`,
+                        title: 'SUKSES',
+                        html: `<b class="text-xl text-blue-600">${siswa.nama}</b><br>Berhasil Presensi`,
                         icon: 'success',
-                        timer: 2000,
+                        timer: 1500,
                         showConfirmButton: false
                     });
                 } else {
-                    Swal.fire('Gagal', `Kode ${kode} tidak terdaftar.`, 'error');
+                    Swal.fire('Data Tidak Ada', `Kode ${kode} tidak terdaftar di Master.`, 'warning');
                 }
-            } catch (err) {
-                statusText.innerText = "Gangguan Jaringan";
+            } catch (e) {
+                statusText.innerText = "GANGGUAN KONEKSI";
             } finally {
                 setTimeout(() => {
-                    isScanning = true;
-                    statusText.innerText = "MENCARI BARCODE...";
-                }, 3000);
+                    isLocked = false;
+                    statusText.innerText = "SIAP MEMINDAI...";
+                }, 2500);
             }
         }
 
-        startCamera();
+        window.addEventListener('load', initScanner);
     </script>
 </body>
 </html>
