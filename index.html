@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner Presensi SMAN 2 Pare</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        #reader video { border-radius: 1.5rem; object-fit: cover; }
+        #reader__scan_region { background: black; }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center p-4">
+
+    <div class="w-full max-w-md bg-slate-800 p-6 rounded-[2.5rem] shadow-2xl border border-slate-700 mt-10">
+        <h1 class="text-2xl font-black text-center mb-1 tracking-tight text-blue-500">PRESENSI SISWA</h1>
+        <p class="text-slate-400 text-center text-xs mb-6 uppercase tracking-widest">SMAN 2 PARE</p>
+        
+        <!-- Scanner Box -->
+        <div id="reader" class="overflow-hidden rounded-3xl border-4 border-slate-700 shadow-inner"></div>
+
+        <div id="result-label" class="mt-6 p-4 bg-slate-900/50 rounded-2xl text-center text-sm font-medium text-blue-300 border border-slate-700">
+            Arahkan kamera ke Barcode Kartu Pelajar
+        </div>
+    </div>
+
+    <script>
+        // MASUKKAN API URL SHEETDB ANDA DI SINI
+        const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
+
+        const html5QrCode = new Html5Qrcode("reader");
+        
+        // Konfigurasi High Sensitivity & Auto Focus
+        const config = { 
+            fps: 30, // Frame per second lebih tinggi agar lebih responsif
+            qrbox: { width: 250, height: 150 }, 
+            aspectRatio: 1.0,
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true // Menggunakan mesin scan internal browser jika ada
+            }
+        };
+
+        const qrCodeSuccessCallback = (decodedText) => {
+            html5QrCode.pause(true); // Jeda scanner agar tidak scan berkali-kali
+            prosesAbsensi(decodedText);
+        };
+
+        // Memulai kamera dengan settingan optimasi fokus
+        html5QrCode.start(
+            { facingMode: "environment" }, 
+            config, 
+            qrCodeSuccessCallback
+        ).catch(err => {
+            document.getElementById('result-label').innerText = "Kamera tidak aktif.";
+        });
+
+        async function prosesAbsensi(kode) {
+            document.getElementById('result-label').innerText = "Mengecek data: " + kode;
+            
+            try {
+                // 1. Cari data di tab Master
+                const res = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
+                const data = await res.json();
+
+                if (data.length > 0) {
+                    const namaSiswa = data[0].nama;
+                    const kelasSiswa = data[0].kelas;
+
+                    // Buat format waktu: JAM, TANGGAL
+                    const sekarang = new Date();
+                    const formatJam = sekarang.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    const formatTanggal = sekarang.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    const waktuLog = `${formatJam}, ${formatTanggal}`;
+
+                    // 2. Kirim data ke tab Log
+                    await fetch(`${API_URL}?sheet=Log`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            "WAKTU": waktuLog, // Format: 18.30.00, 01/05/2026
+                            "KODE": kode,
+                            "NAMA": namaSiswa
+                        })
+                    });
+
+                    // Tampilkan pesan sukses sesuai permintaan Anda
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Selamat!',
+                        html: `<div class="text-left">
+                                <b>Nama:</b> ${namaSiswa}<br>
+                                <b>Kelas:</b> ${kelasSiswa}<br>
+                                <b>Waktu:</b> ${waktuLog}
+                               </div>`,
+                        confirmButtonText: 'Selesai',
+                        confirmButtonColor: '#3b82f6'
+                    });
+
+                    document.getElementById('result-label').innerText = "Terakhir: " + namaSiswa;
+                } else {
+                    Swal.fire('Gagal', 'Siswa tidak ditemukan!', 'error');
+                }
+            } catch (error) {
+                document.getElementById('result-label').innerText = "Kesalahan Database.";
+            } finally {
+                // Lanjutkan scan lagi setelah 5 detik
+                setTimeout(() => {
+                    html5QrCode.resume();
+                    document.getElementById('result-label').innerText = "Siap memindai...";
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>
