@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi Barcode</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@zxing/library@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-5 flex flex-col items-center">
+
+    <div class="w-full max-w-md bg-gray-800 p-6 rounded-2xl shadow-xl border border-gray-700">
+        <h1 class="text-xl font-bold text-center mb-4">Scanner Absensi (Code 128)</h1>
+        
+        <!-- Frame Kamera -->
+        <div class="relative rounded-lg overflow-hidden border-2 border-blue-500 aspect-square bg-black">
+            <video id="video" class="w-full h-full object-cover"></video>
+            <div class="absolute inset-0 border-2 border-red-500 opacity-30 animate-pulse pointer-events-none"></div>
+        </div>
+
+        <div id="info" class="mt-4 p-3 bg-gray-700 rounded-lg text-center text-sm">
+            Klik tombol di bawah untuk mulai
+        </div>
+
+        <button onclick="startScan()" class="w-full mt-4 bg-blue-600 py-3 rounded-lg font-bold hover:bg-blue-700 transition">
+            Buka Kamera
+        </button>
+    </div>
+
+    <script>
+        const codeReader = new ZXing.BrowserMultiFormatReader();
+        const infoBox = document.getElementById('info');
+        
+        // --- MASUKKAN API URL SHEETDB ANDA DI SINI ---
+        const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
+
+        function startScan() {
+            infoBox.innerText = "Mencari barcode...";
+            codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
+                if (result) {
+                    // Jika barcode terdeteksi, hentikan scan sementara dan proses
+                    console.log("Terdeteksi:", result.text);
+                    prosesData(result.text);
+                }
+            });
+        }
+
+        async function prosesData(kodeInput) {
+            infoBox.innerText = "Mengecek Database Master...";
+            
+            try {
+                // 1. CARI NAMA DI TAB 'Master'
+                // Kita tambahkan parameter ?sheet=Master
+                const resMaster = await fetch(`${API_URL}/search?sheet=Master&kode=${kodeInput}`);
+                const dataMaster = await resMaster.json();
+
+                if (dataMaster.length > 0) {
+                    const namaDitemukan = dataMaster[0].nama;
+                    const waktuSekarang = new Date().toLocaleString('id-ID');
+
+                    // 2. TULIS KE TAB 'Log'
+                    infoBox.innerText = "Mencatat kehadiran...";
+                    const resLog = await fetch(`${API_URL}?sheet=Log`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            "waktu_scan": waktuSekarang,
+                            "kode": kodeInput,
+                            "nama": namaDitemukan
+                        })
+                    });
+
+                    if(resLog.ok) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Absen Berhasil',
+                            text: `${namaDitemukan} tercatat pada ${waktuSekarang}`,
+                        });
+                        infoBox.innerText = "Siap untuk scan berikutnya...";
+                    }
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Gagal',
+                        text: `Kode ${kodeInput} tidak terdaftar di Master!`,
+                    });
+                    infoBox.innerText = "Kode tidak dikenal.";
+                }
+            } catch (error) {
+                console.error(error);
+                infoBox.innerText = "Terjadi kesalahan koneksi.";
+            }
+        }
+    </script>
+</body>
+</html>
