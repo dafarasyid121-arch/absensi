@@ -3,225 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Presensi SMAN 2 Pare - Ultimate Scanner</title>
-
-    <!-- Library ZXing & SweetAlert2 -->
+    <title>Scanner Presensi SMAN 2 Pare</title>
     <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', system-ui, sans-serif; 
-            background: #000; 
-            height: 100vh; 
-            overflow: hidden; 
-            color: #fff;
-        }
-
-        .header {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 100;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px 25px;
-            border-radius: 20px;
-            border: 3px solid #10b981;
-            box-shadow: 0 15px 35px rgba(16,185,129,0.3);
-            text-align: center;
-            width: 85%;
-            max-width: 400px;
-        }
-
-        .header h1 { color: #047857; font-size: 1.2em; font-weight: 800; }
-        .header p { color: #6b7280; font-size: 0.8em; font-weight: 600; text-transform: uppercase; }
-
-        .scanner-container {
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .scanner-box {
-            position: relative;
-            width: 85vw;
-            max-width: 350px;
-            height: 85vw;
-            max-height: 350px;
-            border-radius: 24px;
-            overflow: hidden;
-            border: 5px solid #10b981;
-            box-shadow: 0 0 50px rgba(16,185,129,0.4);
-        }
-
-        #video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .scan-line {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: #10b981;
-            box-shadow: 0 0 15px #10b981;
-            animation: ultraScan 2s infinite linear;
-            z-index: 10;
-        }
-
-        @keyframes ultraScan {
-            0% { top: 0%; }
-            100% { top: 100%; }
-        }
-
-        #status {
-            position: fixed;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: white;
-            color: #1e293b;
-            padding: 15px 25px;
-            border-radius: 15px;
-            font-weight: 700;
-            text-align: center;
-            min-width: 250px;
-            z-index: 100;
-        }
-
-        .success-flash {
-            animation: flash 0.5s;
-        }
-
-        @keyframes flash {
-            0% { border-color: #10b981; }
-            50% { border-color: #fff; box-shadow: 0 0 80px #10b981; }
-            100% { border-color: #10b981; }
-        }
+        body { margin: 0; font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        .scanner-wrapper { position: relative; width: 300px; height: 300px; border: 4px solid #10b981; border-radius: 20px; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        .line { position: absolute; width: 100%; height: 3px; background: #10b981; top: 0; animation: move 2s infinite linear; box-shadow: 0 0 10px #10b981; }
+        @keyframes move { 0% { top: 0; } 100% { top: 100%; } }
+        #status { margin-top: 20px; padding: 10px 20px; background: #1e293b; border-radius: 10px; font-weight: bold; text-align: center; }
     </style>
 </head>
-
 <body>
-    <div class="header">
-        <h1>SMAN 2 PARE</h1>
-        <p>Presence System v3.0</p>
+
+    <h2 style="color: #10b981; margin-bottom: 5px;">SMAN 2 PARE</h2>
+    <p style="margin-bottom: 20px; opacity: 0.8;">Attendance Scanner System</p>
+
+    <div class="scanner-wrapper">
+        <div class="line"></div>
+        <video id="video"></video>
     </div>
 
-    <div class="scanner-container">
-        <div id="scannerBox" class="scanner-box">
-            <video id="video"></video>
-            <div class="scan-line"></div>
-        </div>
-    </div>
-
-    <div id="status">Menginisialisasi Kamera...</div>
+    <div id="status">Menunggu Izin Kamera...</div>
 
     <script>
         const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
-        const statusElement = document.getElementById('status');
-        const scannerBox = document.getElementById('scannerBox');
         const codeReader = new ZXing.BrowserMultiFormatReader();
-        
-        let isProcessing = false;
+        let isScanning = false;
 
-        async function startApp() {
+        async function initScanner() {
             try {
-                const videoDevices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
+                const devices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
+                // Pilih kamera belakang secara otomatis
+                const backCamera = devices.find(device => device.label.toLowerCase().includes('back')) || devices[devices.length - 1];
                 
-                // Pilih kamera belakang (biasanya device terakhir di list)
-                const selectedDevice = videoDevices.length > 1 ? videoDevices[videoDevices.length - 1].deviceId : videoDevices[0].deviceId;
+                document.getElementById('status').innerText = "🟢 Siap Scan Barcode";
 
-                statusElement.innerHTML = "🟢 Kamera Siap - Scan Barcode";
-
-                codeReader.decodeFromVideoDevice(selectedDevice, 'video', async (result, err) => {
-                    if (result && !isProcessing) {
-                        handleScanSuccess(result.text, result.format);
+                codeReader.decodeFromVideoDevice(backCamera.deviceId, 'video', (result, err) => {
+                    if (result && !isScanning) {
+                        isScanning = true;
+                        processData(result.text);
                     }
                 });
-
-            } catch (error) {
-                console.error(error);
-                statusElement.style.color = "red";
-                statusElement.innerHTML = "❌ Error: Gunakan HTTPS / Beri Izin Kamera";
-                
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Akses Ditolak',
-                    text: 'Pastikan Anda menggunakan HTTPS dan memberikan izin akses kamera.',
-                    confirmButtonColor: '#10b981'
-                });
+            } catch (e) {
+                console.error(e);
+                document.getElementById('status').innerHTML = "❌ Akses Kamera Ditolak<br><small>Pastikan menggunakan HTTPS</small>";
             }
         }
 
-        async function handleScanSuccess(kode, format) {
-            isProcessing = true;
-            scannerBox.classList.add('success-flash');
+        async function processData(kode) {
+            // Getar HP (jika didukung)
+            if (navigator.vibrate) navigator.vibrate(100);
             
-            if (navigator.vibrate) navigator.vibrate(200);
-            statusElement.innerHTML = "⏳ Memproses: " + kode;
+            document.getElementById('status').innerText = "⏳ Mengecek Data...";
 
             try {
-                // 1. Cek Siswa di Database
-                const response = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
-                const data = await response.json();
+                const res = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
+                const data = await res.json();
 
                 if (data.length > 0) {
-                    const siswa = data[0];
-                    const namaSiswa = siswa.NAMA || siswa.nama;
-                    const kelasSiswa = siswa.KELAS || siswa.kelas;
-
-                    // 2. Kirim Log Presensi
+                    const mhs = data[0];
+                    // Kirim ke Log
                     await fetch(`${API_URL}?sheet=Log`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
                             "WAKTU": new Date().toLocaleString('id-ID'),
                             "KODE": kode,
-                            "NAMA": namaSiswa,
-                            "KELAS": kelasSiswa,
+                            "NAMA": mhs.NAMA || mhs.nama,
                             "STATUS": "HADIR"
                         })
                     });
 
-                    Swal.fire({
-                        title: 'BERHASIL!',
-                        text: `${namaSiswa} (${kelasSiswa})`,
-                        icon: 'success',
-                        timer: 2000,
-                        showConfirmButton: false
-                    });
-                    
-                    statusElement.innerHTML = `✅ Terabsen: ${namaSiswa}`;
+                    Swal.fire({ icon: 'success', title: 'HADIR!', text: mhs.NAMA || mhs.nama, timer: 2000, showConfirmButton: false });
                 } else {
-                    Swal.fire({
-                        title: 'KODE ASING',
-                        text: `Kode: ${kode} tidak terdaftar di database Master.`,
-                        icon: 'warning'
-                    });
-                    statusElement.innerHTML = "❌ Siswa Tidak Dikenal";
+                    Swal.fire({ icon: 'error', title: 'TIDAK DIKENAL', text: 'Kode tidak terdaftar di Master' });
                 }
-            } catch (e) {
-                console.error(e);
-                statusElement.innerHTML = "❌ Gagal Menghubungkan ke Server";
+            } catch (err) {
+                Swal.fire({ icon: 'error', title: 'ERROR', text: 'Gagal terhubung ke server' });
             }
 
-            // Tunggu 3 detik sebelum siap scan lagi
+            // Delay agar tidak scan berkali-kali dalam sekejap
             setTimeout(() => {
-                isProcessing = false;
-                scannerBox.classList.remove('success-flash');
-                statusElement.innerHTML = "🟢 Kamera Siap - Scan Barcode";
+                isScanning = false;
+                document.getElementById('status').innerText = "🟢 Siap Scan Barcode";
             }, 3000);
         }
 
-        // Jalankan Aplikasi
-        window.addEventListener('load', startApp);
+        window.onload = initScanner;
     </script>
 </body>
 </html>
