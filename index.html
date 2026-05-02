@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Presensi SMAN 2 Pare</title>
+    <title>Presensi SMAN 2 Pare - All Barcode</title>
 
-    <!-- ZXING LIGHTWEIGHT VERSION -->
     <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <style>
-        /* [SAMA PERSIS seperti sebelumnya - full screen kamera] */
+        /* [SAMA PERSIS full screen tema hijau] */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -68,7 +67,7 @@
 <body>
     <div class="header">
         <h1>SMAN 2 PARE</h1>
-        <p>Presensi Digital</p>
+        <p>Scan Semua Barcode/QR</p>
     </div>
 
     <div class="scanner-container">
@@ -78,33 +77,44 @@
         </div>
     </div>
 
-    <div id="status" class="status-ready">Arahkan barcode ke kamera</div>
+    <div id="status" class="status-ready">QR Code / Barcode / Semua Format</div>
 
     <script>
-        // GANTI API URL INI!
+        // GANTI API URL!
         const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
         
         const video = document.getElementById('video');
         const status = document.getElementById('status');
         const scannerBox = document.getElementById('scannerBox');
+        
         let stream = null;
         let lastScan = 0;
         let isProcessing = false;
 
-        // ⚡ ULTRA FAST - Custom ZXing
-        const hints = new Map();
-        hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-            ZXing.BarcodeFormat.QR_CODE,
-            ZXing.BarcodeFormat.CODE_128,
-            ZXing.BarcodeFormat.EAN_13,
-            ZXing.BarcodeFormat.CODE_39
-        ]);
-        hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-        const codeReader = new ZXing.BrowserQRCodeReader(50, hints); // ⚡ 50ms scan!
+        // 🔥 ALL-IN-ONE MULTI FORMAT SCANNER
+        const codeReader = new ZXing.BrowserMultiFormatReader(30, {
+            // SUPPORT SEMUA FORMAT!
+            formats: [
+                ZXing.BarcodeFormat.QR_CODE,
+                ZXing.BarcodeFormat.DATA_MATRIX,
+                ZXing.BarcodeFormat.CODE_128,
+                ZXing.BarcodeFormat.CODE_39,
+                ZXing.BarcodeFormat.EAN_13,
+                ZXing.BarcodeFormat.EAN_8,
+                ZXing.BarcodeFormat.UPC_A,
+                ZXing.BarcodeFormat.UPC_E,
+                ZXing.BarcodeFormat.ITF,
+                ZXing.BarcodeFormat.CODABAR,
+                ZXing.BarcodeFormat.RSS_14,
+                ZXing.BarcodeFormat.RSS_EXPANDED
+            ],
+            // ULTRA FAST SETTINGS
+            timeBetweenScansMS: 30,  // ⚡ 30ms!
+            tryHarder: true
+        });
 
         async function initScanner() {
-            status.textContent = '🔄 Kamera siap...';
+            status.textContent = '🔄 Mulai scanning...';
             status.className = 'status-scan';
 
             try {
@@ -113,116 +123,144 @@
                         facingMode: "environment",
                         width: { ideal: 1280 },
                         height: { ideal: 720 },
-                        frameRate: { min: 30, ideal: 60, max: 60 } // ⚡ MAX FPS!
+                        frameRate: { ideal: 60, max: 60 } // MAX SPEED!
                     }
                 });
                 
                 video.srcObject = stream;
                 await video.play();
 
-                // ⚡ START FAST SCANNING
+                // 🔥 SCAN ALL FORMATS
                 codeReader.decodeFromVideoDevice(
                     null, 
                     video, 
                     (result, err) => {
                         if (result && !isProcessing && (Date.now() - lastScan > 800)) {
-                            processBarcode(result.text);
+                            processBarcode(result.text, result.formatResult.formatString);
                         }
                     }
                 );
 
-                status.textContent = '✅ SCAN BARCODE';
+                status.innerHTML = '✅ <strong>Scan QR/Barcode apapun!</strong>';
                 status.className = 'status-ready';
 
             } catch (e) {
-                status.textContent = '❌ Kamera error';
-                console.error(e);
+                status.textContent = '❌ Kamera gagal';
+                console.error('Camera error:', e);
             }
         }
 
-        // ⚡ PROCESS 0.2s TOTAL!
-        async function processBarcode(kode) {
+        // 🔥 PROCESS ANY CODE TYPE
+        async function processBarcode(kode, format) {
             isProcessing = true;
             lastScan = Date.now();
             scannerBox.classList.add('success-flash');
 
-            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
 
-            status.textContent = `Cek: ${kode.slice(0, 10)}...`;
+            status.innerHTML = `🔍 ${format}<br>${kode.slice(0, 12)}...`;
             status.className = 'status-scan';
 
             try {
-                // ⚡ PARALLEL API - SUPER FAST
-                const [siswaRes] = await Promise.all([
-                    fetch(`${API_URL}/search?sheet=Master&kode=${kode}`)
-                        .then(r => r.json())
-                ]);
+                // CEK DI MASTER SHEET
+                const response = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
+                const siswaData = await response.json();
 
-                if (siswaRes.length > 0) {
-                    const siswa = siswaRes[0];
+                if (siswaData.length > 0) {
+                    // ✅ SISWA DITEMUKAN
+                    const siswa = siswaData[0];
                     const now = new Date();
                     const timestamp = now.toLocaleString('id-ID');
 
-                    // ⚡ SAVE PRESENSI
+                    // SIMPAN LOG
                     await fetch(`${API_URL}?sheet=Log`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             "WAKTU": timestamp,
                             "KODE": kode,
+                            "FORMAT": format,
                             "NAMA": siswa.NAMA,
                             "KELAS": siswa.KELAS,
                             "STATUS": "HADIR"
                         })
                     });
 
-                    // ⚡ INSTANT FEEDBACK
+                    // SUCCESS FEEDBACK
                     Swal.fire({
-                        title: '✅ HADIR!',
-                        html: `<b style="font-size:1.3em">${siswa.NAMA}</b><br>
-                               <small>${siswa.KELAS} | ${kode}</small>`,
+                        title: '✅ PRESENSI BERHASIL',
+                        html: `
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.3em; font-weight: bold; margin-bottom: 8px;">
+                                    ${siswa.NAMA}
+                                </div>
+                                <div style="opacity: 0.9;">
+                                    ${format} | ${siswa.KELAS}
+                                </div>
+                            </div>
+                        `,
                         icon: 'success',
-                        timer: 1500,
+                        timer: 2000,
                         showConfirmButton: false,
                         backdrop: false,
                         width: '90vw',
-                        maxWidth: '400px'
+                        customClass: { popup: 'animate-pulse' }
                     });
 
-                    status.textContent = '🎉 BERHASIL! Siap scan lagi';
+                    status.innerHTML = `🎉 ${siswa.NAMA}<br>Siap scan lagi`;
                     status.className = 'status-success';
 
                 } else {
-                    throw new Error('Siswa tidak terdaftar');
+                    // ❌ TIDAK TERDAFTAR
+                    Swal.fire({
+                        title: '⚠️ SISWA BARU',
+                        html: `
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.1em; margin-bottom: 4px;">
+                                    ${kode}
+                                </div>
+                                <div style="opacity: 0.8; font-size: 0.9em;">
+                                    ${format} - Belum terdaftar
+                                </div>
+                            </div>
+                        `,
+                        icon: 'warning',
+                        timer: 2000,
+                        showConfirmButton: false,
+                        backdrop: false,
+                        width: '90vw'
+                    });
+
+                    status.textContent = `${kode} - Tambah ke Master`;
                 }
 
-            } catch (err) {
+            } catch (error) {
                 Swal.fire({
-                    title: '❌ GAGAL',
-                    text: err.message,
+                    title: '❌ ERROR',
+                    text: 'Cek koneksi/server',
                     icon: 'error',
                     timer: 1500,
-                    showConfirmButton: false,
-                    backdrop: false,
-                    width: '90vw'
+                    showConfirmButton: false
                 });
-                status.textContent = 'Scan ulang...';
+                status.textContent = 'Error - coba lagi';
             }
 
-            // ⚡ AUTO RESTART 1s
+            // AUTO RESTART
             setTimeout(() => {
                 scannerBox.classList.remove('success-flash');
                 isProcessing = false;
-                initScanner(); // Restart scanning
-            }, 1000);
+                initScanner();
+            }, 1500);
         }
 
-        // AUTO START
-        window.onload = initScanner;
+        // 🔥 AUTO START
+        window.addEventListener('load', initScanner);
 
         // CLEANUP
         window.addEventListener('pagehide', () => {
-            if (stream) stream.getTracks().forEach(t => t.stop());
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
             codeReader.reset();
         });
     </script>
