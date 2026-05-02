@@ -91,8 +91,11 @@ async function initScanner() {
         const stream = await navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: "environment",
-                width: { ideal: 640 },   // lebih ringan & cepat
-                height: { ideal: 480 }
+                // Resolusi 640x480 adalah "sweet spot" untuk scanner berbasis web
+                width: { ideal: 640 }, 
+                height: { ideal: 480 },
+                // Memaksa frame rate lebih tinggi agar tidak patah-patah
+                frameRate: { ideal: 30 } 
             }
         });
 
@@ -101,13 +104,30 @@ async function initScanner() {
 
         status.innerText = "Arahkan barcode ke kamera";
 
-        // 🔥 REALTIME SCAN (SUPER CEPAT)
+        // Konfigurasi tambahan untuk mempercepat ZXing
+        const hints = new Map();
+        // Menentukan format secara spesifik mempercepat proses pencarian algoritma
+        const formats = [
+            ZXing.BarcodeFormat.QR_CODE, 
+            ZXing.BarcodeFormat.CODE_128, 
+            ZXing.BarcodeFormat.EAN_13
+        ];
+        hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.set(ZXing.DecodeHintType.TRY_HARDER, true); // Mencoba lebih teliti namun tetap cepat pada resolusi rendah
+
+        // Memulai scanner dengan hints
         codeReader.decodeFromVideoDevice(null, video, (result, err) => {
             if (result && !isProcessing) {
                 handleMatch(result.getText());
             }
-        });
+            // Jika err, library akan terus mencoba frame berikutnya secara otomatis
+        }, hints);
 
+    } catch (err) {
+        status.innerText = "Kamera tidak tersedia atau izin ditolak";
+        console.error(err);
+    }
+}
     } catch (err) {
         status.innerText = "Kamera tidak tersedia";
     }
