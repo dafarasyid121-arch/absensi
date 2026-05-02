@@ -61,7 +61,7 @@
     <div class="w-full max-w-md text-center">
         <h1 class="text-2xl font-black mb-1">SMAN 2 PARE</h1>
         <p class="text-blue-400 text-[10px] font-bold tracking-[0.3em] mb-8 uppercase">
-            Fast Realtime Scanner
+            Fast Realtime Absensi
         </p>
 
         <div id="wrapper" class="scanner-box shadow-2xl">
@@ -71,7 +71,7 @@
 
         <div class="mt-8">
             <p id="status" class="text-sm font-medium text-slate-400">
-                Menunggu izin kamera...
+                Menghubungkan ke sistem...
             </p>
         </div>
     </div>
@@ -81,15 +81,14 @@ const video = document.getElementById('video');
 const status = document.getElementById('status');
 const wrapper = document.getElementById('wrapper');
 
-const codeReader = new ZXing.BrowserMultiFormatReader();
+// Ganti URL ini dengan API SheetDB Anda jika berubah
 const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
 
+const codeReader = new ZXing.BrowserMultiFormatReader();
 let isProcessing = false;
-let lastScan = 0;
 
 async function initScanner() {
     try {
-        // 1. Minta akses kamera secara eksplisit terlebih dahulu
         const constraints = {
             video: {
                 facingMode: "environment",
@@ -101,86 +100,114 @@ async function initScanner() {
 
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
-        
-        // Pastikan video mulai diputar
         await video.play();
-        status.innerText = "Arahkan barcode ke kamera";
 
-        // 2. Konfigurasi Hints untuk mempercepat deteksi
+        status.innerText = "Arahkan kartu ke kamera";
+
         const hints = new Map();
         const formats = [
-            ZXing.BarcodeFormat.QR_CODE,
             ZXing.BarcodeFormat.CODE_128,
+            ZXing.BarcodeFormat.QR_CODE,
             ZXing.BarcodeFormat.EAN_13
         ];
         hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.set(ZXing.DecodeHintType.TRY_HARDER, false); 
 
-        // 3. Mulai decoding
         codeReader.decodeFromVideoDevice(null, video, (result, err) => {
             if (result && !isProcessing) {
-                handleMatch(result.getText());
+                handleAbsensi(result.getText());
             }
         }, hints);
 
     } catch (err) {
         console.error(err);
-        status.innerText = "Kamera Error: " + err.message;
-        Swal.fire('Kamera Error', 'Pastikan izin kamera diberikan dan gunakan HTTPS', 'error');
+        status.innerText = "Error: Kamera tidak terdeteksi.";
     }
 }
 
-function handleMatch(kode) {
-    const now = Date.now();
-    if (now - lastScan < 2500) return; // Jeda antar scan
-    lastScan = now;
+function handleAbsensi(kode) {
+    const now = new Date();
+    // Format tanggal ID-ID: DD/MM/YYYY
+    const tglCek = now.toLocaleDateString('id-ID'); 
+    // Format Waktu: Jam, Tanggal (sesuai permintaan)
+    const jam = now.getHours().toString().padStart(2, '0');
+    const menit = now.getMinutes().toString().padStart(2, '0');
+    const waktuLog = `${jam}:${menit}, ${tglCek}`;
 
     isProcessing = true;
     wrapper.classList.add('capturing');
     if (navigator.vibrate) navigator.vibrate(100);
     
-    status.innerText = "Mengecek: " + kode;
+    status.innerText = "Mengecek riwayat hari ini...";
 
-    fetch(`${API_URL}/search?sheet=Master&kode=${kode}`)
+    // 1. CEK DUPLIKAT (Apakah sudah absen hari ini di sheet Log)
+    // SheetDB akan mencari kecocokan tglCek di dalam kolom WAKTU
+    fetch(`${API_URL}/search?sheet=Log&WAKTU=*${tglCek}*&KODE=${kode}`)
+        .then(res => res.json())
+        .then(logs => {
+            if (logs && logs.length > 0) {
+                Swal.fire({
+                    title: 'SUDAH ABSEN',
+                    text: 'Kartu ini sudah digunakan hari ini.',
+                    icon: 'warning',
+                    timer: 2500,
+                    showConfirmButton: false
+                });
+                resetScanner();
+            } else {
+                // 2. JIKA BELUM, CARI DATA DI MASTER
+                prosesDataMaster(kode, waktuLog);
+            }
+        })
+        .catch(err => {
+            status.innerText = "Koneksi database terputus.";
+            resetScanner();
+        });
+}
+
+function prosesDataMaster(kode, waktuLog) {
+    status.innerText = "Mencari data siswa...";
+    
+    fetch(`${API_URL}/search?sheet=Master&KODE=${kode}`)
         .then(res => res.json())
         .then(data => {
             if (data && data.length > 0) {
                 const siswa = data[0];
+
                 Swal.fire({
-                    title: 'BERHASIL',
-                    text: siswa.nama,
+                    title: 'BERHASIL ABSEN',
+                    html: `<b class="text-xl">${siswa.NAMA}</b><br>Kelas: ${siswa.KELAS}<br><small>${waktuLog}</small>`,
                     icon: 'success',
-                    timer: 1500,
+                    timer: 2000,
                     showConfirmButton: false
                 });
 
-                const skrg = new Date();
+                // 3. KIRIM LOG KE TAB "Log"
                 fetch(`${API_URL}?sheet=Log`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        "WAKTU": `${skrg.toLocaleTimeString()}, ${skrg.toLocaleDateString()}`,
+                        "NO": "INCREMENT",
+                        "WAKTU": waktuLog,
                         "KODE": kode,
-                        "NAMA": siswa.nama
+                        "NAMA": siswa.NAMA
                     })
                 });
             } else {
-                Swal.fire('Gagal', 'Kode tidak terdaftar', 'error');
+                Swal.fire('GAGAL', 'Kode kartu tidak terdaftar!', 'error');
             }
-        })
-        .catch(err => {
-            console.error("Fetch Error:", err);
-            status.innerText = "Koneksi Bermasalah";
-        })
-        .finally(() => {
-            setTimeout(() => {
-                isProcessing = false;
-                wrapper.classList.remove('capturing');
-                status.innerText = "Siap scan...";
-            }, 1500);
+            resetScanner();
         });
 }
 
-// Inisialisasi saat halaman selesai dimuat
+function resetScanner() {
+    setTimeout(() => {
+        isProcessing = false;
+        wrapper.classList.remove('capturing');
+        status.innerText = "Siap scan berikutnya...";
+    }, 2500);
+}
+
 window.addEventListener('load', initScanner);
 </script>
 
