@@ -209,4 +209,22 @@
                 status.textContent = 'Scan ulang...';
             }
 
-            // ⚡ AUTO RESTART 1
+            // ⚡ AUTO RESTART 1s
+            setTimeout(() => {
+                scannerBox.classList.remove('success-flash');
+                isProcessing = false;
+                initScanner(); // Restart scanning
+            }, 1000);
+        }
+
+        // AUTO START
+        window.onload = initScanner;
+
+        // CLEANUP
+        window.addEventListener('pagehide', () => {
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            codeReader.reset();
+        });
+    </script>
+</body>
+</html>
