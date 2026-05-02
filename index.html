@@ -3,165 +3,137 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Presensi SMAN 2 Pare</title>
+    <title>Presensi SMAN 2 Pare - All Scanner</title>
 
+    <!-- ZXING + QuaggaJS (Double Engine!) -->
     <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <style>
         *{margin:0;padding:0;box-sizing:border-box;}
-        body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);height:100vh;overflow:hidden;color:#1e293b;}
+        body{font-family:'Segoe UI',system-ui,sans-serif;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);height:100vh;overflow:hidden;}
         .header{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);padding:15px 25px;border-radius:20px;border:3px solid #d1fae5;box-shadow:0 15px 35px rgba(16,185,129,0.3);text-align:center;}
         .header h1{color:#047857;font-size:1.4em;font-weight:800;margin-bottom:2px;}
         .header p{color:#6b7280;font-size:0.85em;font-weight:600;letter-spacing:1px;}
         .scanner-container{position:fixed;top:0;left:0;width:100vw;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#000;}
         .scanner-box{position:relative;width:90vw;max-width:400px;height:90vw;max-height:400px;border-radius:24px;overflow:hidden;border:6px solid #10b981;box-shadow:0 30px 60px -15px rgba(16,185,129,0.5),inset 0 2px 8px rgba(255,255,255,0.2);}
         #video{width:100%;height:100%;object-fit:cover;background:radial-gradient(circle,#333 0%,#000 100%);}
-        .scan-line{position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,#10b981,#059669,#10b981,transparent);box-shadow:0 0 25px #10b981;animation:fastScan 0.4s infinite linear;z-index:10;}
-        @keyframes fastScan{0%{top:0%;opacity:1;}100%{top:100%;opacity:0;}}
-        .success-flash{animation:successFlash 0.3s ease-out;border-color:#059669!important;box-shadow:0 0 80px rgba(16,185,129,1),inset 0 4px 12px rgba(255,255,255,0.3)!important;}
+        .scan-line{position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,#10b981,#059669,#10b981,transparent);box-shadow:0 0 25px #10b981;animation:ultraScan 0.3s infinite linear;z-index:10;}
+        @keyframes ultraScan{0%{top:0%;opacity:1;}100%{top:100%;opacity:0;}}
+        .success-flash{animation:successFlash 0.3s ease-out;border-color:#059669!important;box-shadow:0 0 80px rgba(16,185,129,1)!important;}
         @keyframes successFlash{0%,100%{transform:scale(1);}50%{transform:scale(1.02);}}
-        #status{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);padding:18px 30px;border-radius:20px;border:3px solid #d1fae5;box-shadow:0 20px 40px rgba(0,0,0,0.2);font-weight:700;font-size:1.1em;text-align:center;min-width:280px;transition:all 0.2s ease;}
+        #status{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,0.95);backdrop-filter:blur(20px);padding:18px 30px;border-radius:20px;border:3px solid #d1fae5;box-shadow:0 20px 40px rgba(0,0,0,0.2);font-weight:700;font-size:1.1em;text-align:center;min-width:280px;transition:all 0.2s;}
         .status-ready{color:#047857;border-color:#10b981;}
         .status-scan{color:#92400e;background:rgba(254,243,199,0.95);border-color:#f59e0b;}
         .status-success{color:#059669;background:rgba(209,250,229,0.95);border-color:#10b981;}
         .status-wait{color:#6b7280;background:rgba(248,250,252,0.95);border-color:#e2e8f0;}
-        .spinner{width:20px;height:20px;border:2px solid #d1d5db;border-top:2px solid #10b981;border-radius:50%;animation:spin 1s linear infinite;display:inline-block;margin-right:8px;}
-        @keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
     </style>
 </head>
 
 <body>
     <div class="header">
         <h1>SMAN 2 PARE</h1>
-        <p>Presensi Semua Barcode</p>
+        <p>Ultimate Scanner</p>
     </div>
 
     <div class="scanner-container">
         <div id="scannerBox" class="scanner-box">
             <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas" style="display:none;"></canvas>
             <div class="scan-line"></div>
         </div>
     </div>
 
-    <div id="status" class="status-wait">
-        <span class="spinner"></span>Izinkan kamera...
-    </div>
+    <div id="status" class="status-wait">Memulai scanner...</div>
 
     <script>
-        // GANTI API URL ANDA
+        // GANTI API URL
         const API_URL = "https://sheetdb.io/api/v1/ro774kye7q3fr";
         
         const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
         const status = document.getElementById('status');
         const scannerBox = document.getElementById('scannerBox');
         
         let stream = null;
-        let codeReader = null;
         let lastScan = 0;
         let isProcessing = false;
+        let animationId = null;
 
-        // 🔥 AUTO PERMISSION + FALLBACK
-        async function startCamera() {
+        // 🔥 ULTIMATE CAMERA START
+        async function initCamera() {
             const configs = [
-                { video: { facingMode: "environment" } },
-                { video: { facingMode: "user" } },
-                { video: { width: 640, height: 480 } },
-                { video: true }
+                {video:{facingMode:"environment"}},
+                {video:{facingMode:"user"}},
+                {video:{width:640,height:480}},
+                {video:true}
             ];
 
-            for (const config of configs) {
+            for(const config of configs) {
                 try {
-                    status.innerHTML = `<span class="spinner"></span>Minta akses kamera...`;
                     stream = await navigator.mediaDevices.getUserMedia(config);
                     video.srcObject = stream;
-                    
-                    // Tunggu video siap
-                    return new Promise((resolve) => {
-                        const checkReady = () => {
-                            if (video.videoWidth > 0 && video.videoHeight > 0) {
-                                console.log('✅ Kamera ready!');
-                                resolve(true);
-                            } else {
-                                setTimeout(checkReady, 200);
-                            }
-                        };
-                        checkReady();
+                    return new Promise(resolve => {
+                        video.onloadedmetadata = () => video.play().then(resolve);
                     });
-                    
-                } catch (err) {
-                    console.log('Fallback camera:', config);
-                }
+                } catch(e) {}
             }
-            return false;
+            throw new Error('No camera');
         }
 
-        // 🔥 ALL BARCODE SCANNER
-        function initBarcodeScanner() {
-            codeReader = new ZXing.BrowserMultiFormatReader(30, {
-                timeBetweenScansMS: 30, // ⚡ SUPER FAST
-                formats: [
-                    ZXing.BarcodeFormat.QR_CODE,
-                    ZXing.BarcodeFormat.DATA_MATRIX,
-                    ZXing.BarcodeFormat.CODE_128,
-                    ZXing.BarcodeFormat.CODE_39,
-                    ZXing.BarcodeFormat.EAN_13,
-                    ZXing.BarcodeFormat.EAN_8,
-                    ZXing.BarcodeFormat.UPC_A,
-                    ZXing.BarcodeFormat.UPC_E,
-                    ZXing.BarcodeFormat.ITF,
-                    ZXing.BarcodeFormat.CODABAR,
-                    ZXing.BarcodeFormat.RSS_14,
-                    ZXing.BarcodeFormat.RSS_EXPANDED
-                ]
-            });
-
-            codeReader.decodeFromVideoDevice(
-                null,
-                video,
-                (result, error) => {
-                    if (result && !isProcessing && (Date.now() - lastScan > 1000)) {
-                        processBarcode(result.text, result.formatResult.formatString);
-                    }
-                }
-            );
-        }
-
-        // 🚀 MAIN PROCESS
-        async function initApp() {
-            const cameraOK = await startCamera();
+        // 🔥 ZXING + Canvas Hybrid Scanner
+        async function startScanning() {
+            await initCamera();
             
-            if (cameraOK) {
-                initBarcodeScanner();
-                status.innerHTML = '✅ <strong>Scan QR/Barcode apapun!</strong>';
-                status.className = 'status-ready';
-            } else {
-                status.innerHTML = '❌ Kamera tidak tersedia<br>Gunakan Chrome/Safari';
-                status.className = 'status-error';
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            
+            function scanFrame() {
+                if (!isProcessing && Date.now() - lastScan > 800) {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // 🔥 ZXING DECODE
+                    ZXing.BrowserMultiFormatReader.decodeFromImage(
+                        canvas,
+                        null,
+                        async (result, error) => {
+                            if (result) {
+                                await processBarcode(result.text, result.formatResult.formatString);
+                            }
+                        }
+                    );
+                }
+                animationId = requestAnimationFrame(scanFrame);
             }
+            
+            scanFrame();
+            status.innerHTML = '✅ Scan semua barcode/QR!';
+            status.className = 'status-ready';
         }
 
-        async function processBarcode(kode, format) {
+        // 🔥 PROCESS RESULT
+        async function processBarcode(kode, format = 'UNKNOWN') {
             isProcessing = true;
             lastScan = Date.now();
             scannerBox.classList.add('success-flash');
             
-            if (navigator.vibrate) navigator.vibrate([150, 50, 150]);
+            if (navigator.vibrate) navigator.vibrate(200);
 
-            status.innerHTML = `🔍 ${format}<br>${kode.slice(0, 12)}...`;
+            status.innerHTML = `Deteksi: ${format}<br>${kode.slice(0, 15)}...`;
             status.className = 'status-scan';
 
             try {
-                // Cek Master Sheet
-                const res = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
-                const siswaData = await res.json();
+                // Cek database
+                const response = await fetch(`${API_URL}/search?sheet=Master&kode=${kode}`);
+                const students = await response.json();
 
-                if (siswaData.length > 0) {
-                    const siswa = siswaData[0];
+                if (students.length > 0) {
+                    const student = students[0];
                     const now = new Date();
                     const timestamp = now.toLocaleString('id-ID');
 
-                    // Simpan Log
+                    // Save attendance
                     await fetch(`${API_URL}?sheet=Log`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -169,101 +141,90 @@
                             "WAKTU": timestamp,
                             "KODE": kode,
                             "FORMAT": format,
-                            "NAMA": siswa.NAMA || siswa.nama,
-                            "KELAS": siswa.KELAS || siswa.kelas,
+                            "NAMA": student.NAMA || student.nama || 'Unknown',
+                            "KELAS": student.KELAS || student.kelas || 'Unknown',
                             "STATUS": "HADIR"
                         })
                     });
 
-                    // Success Popup
+                    // Success feedback
                     Swal.fire({
-                        title: '✅ HADIR!',
+                        title: '✅ PRESENSI OK!',
                         html: `
-                            <div style="text-align:center">
-                                <div style="font-size:1.3em;font-weight:bold;margin-bottom:5px">
-                                    ${siswa.NAMA || siswa.nama}
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.3em; font-weight: bold; margin-bottom: 5px;">
+                                    ${student.NAMA || student.nama}
                                 </div>
-                                <div style="font-size:0.9em;opacity:0.9">
-                                    ${format} | ${siswa.KELAS || siswa.kelas}
+                                <div style="font-size: 0.9em; opacity: 0.85;">
+                                    ${format} | ${student.KELAS || student.kelas}
                                 </div>
                             </div>
                         `,
                         icon: 'success',
-                        timer: 2000,
+                        timer: 2200,
                         showConfirmButton: false,
                         backdrop: false,
                         width: '90vw'
                     });
 
-                    status.innerHTML = `🎉 ${siswa.NAMA || siswa.nama}`;
+                    status.innerHTML = `✅ ${student.NAMA || student.nama}`;
                     status.className = 'status-success';
 
                 } else {
-                    // Belum terdaftar
+                    // New student
                     Swal.fire({
-                        title: '⚠️ SISWA BARU',
+                        title: '👤 SISWA BARU',
                         html: `
-                            <div style="text-align:center">
-                                <code style="font-size:1.1em">${kode}</code><br>
+                            <div style="text-align: center;">
+                                <code style="font-size: 1.1em; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; display: block; margin-bottom: 4px;">
+                                    ${kode}
+                                </code>
                                 <small>${format}</small>
                             </div>
                         `,
-                        icon: 'warning',
-                        timer: 2000,
+                        icon: 'info',
+                        timer: 2500,
                         showConfirmButton: false,
                         backdrop: false,
                         width: '90vw'
                     });
-                    status.innerHTML = `${kode}<br>Tambah ke Master`;
+                    status.innerHTML = `New: ${kode}`;
                 }
 
             } catch (error) {
-                console.error('API Error:', error);
+                console.error('Error:', error);
                 Swal.fire({
-                    title: '❌ ERROR',
-                    text: 'Server/Koneksi bermasalah',
+                    title: '❌ GAGAL',
+                    text: 'Koneksi/Server error',
                     icon: 'error',
                     timer: 2000,
                     showConfirmButton: false
                 });
-                status.textContent = 'Cek koneksi internet';
+                status.textContent = 'Coba lagi';
             }
 
-            // Auto restart scanning
+            // Restart scanning
             setTimeout(() => {
                 scannerBox.classList.remove('success-flash');
                 isProcessing = false;
-                if (stream && codeReader) {
-                    codeReader.reset();
-                    initBarcodeScanner();
-                }
-            }, 2200);
+            }, 2500);
         }
 
-        // 🔥 AUTO START ON LOAD
-        window.addEventListener('load', () => {
-            // iOS Safari fix
-            if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                document.body.style.height = '100vh';
-                setTimeout(initApp, 500);
-            } else {
-                initApp();
+        // 🔥 INIT APP
+        window.addEventListener('load', async () => {
+            try {
+                status.innerHTML = '<span style="animation: spin 1s linear infinite;">⏳</span>Memulai...';
+                await startScanning();
+            } catch (e) {
+                status.innerHTML = '❌ Scanner gagal<br>Gunakan Chrome terbaru';
+                console.error(e);
             }
         });
 
         // Cleanup
         window.addEventListener('pagehide', () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-            if (codeReader) {
-                codeReader.reset();
-            }
-        });
-
-        // Prevent zoom on iOS
-        document.addEventListener('gesturestart', function (e) {
-            e.preventDefault();
+            if (animationId) cancelAnimationFrame(animationId);
+            if (stream) stream.getTracks().forEach(t => t.stop());
         });
     </script>
 </body>
