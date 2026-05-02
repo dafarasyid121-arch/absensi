@@ -25,6 +25,7 @@
             border-radius: 2.5rem;
             overflow: hidden;
             border: 4px solid #3b82f6;
+            background-color: #000;
         }
 
         .capturing {
@@ -59,18 +60,18 @@
 
     <div class="w-full max-w-md text-center">
         <h1 class="text-2xl font-black mb-1">SMAN 2 PARE</h1>
-        <p class="text-blue-500 text-[10px] font-bold tracking-[0.3em] mb-8 uppercase">
+        <p class="text-blue-400 text-[10px] font-bold tracking-[0.3em] mb-8 uppercase">
             Fast Realtime Scanner
         </p>
 
-        <div id="wrapper" class="scanner-box shadow-2xl bg-black">
+        <div id="wrapper" class="scanner-box shadow-2xl">
             <video id="video" playsinline></video>
             <div class="scan-line"></div>
         </div>
 
         <div class="mt-8">
             <p id="status" class="text-sm font-medium text-slate-400">
-                Mengaktifkan kamera...
+                Menunggu izin kamera...
             </p>
         </div>
     </div>
@@ -88,71 +89,62 @@ let lastScan = 0;
 
 async function initScanner() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        // 1. Minta akses kamera secara eksplisit terlebih dahulu
+        const constraints = {
             video: {
                 facingMode: "environment",
-                // Resolusi 640x480 adalah "sweet spot" untuk scanner berbasis web
-                width: { ideal: 640 }, 
+                width: { ideal: 640 },
                 height: { ideal: 480 },
-                // Memaksa frame rate lebih tinggi agar tidak patah-patah
-                frameRate: { ideal: 30 } 
+                frameRate: { ideal: 30 }
             }
-        });
+        };
 
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
+        
+        // Pastikan video mulai diputar
         await video.play();
-
         status.innerText = "Arahkan barcode ke kamera";
 
-        // Konfigurasi tambahan untuk mempercepat ZXing
+        // 2. Konfigurasi Hints untuk mempercepat deteksi
         const hints = new Map();
-        // Menentukan format secara spesifik mempercepat proses pencarian algoritma
         const formats = [
-            ZXing.BarcodeFormat.QR_CODE, 
-            ZXing.BarcodeFormat.CODE_128, 
+            ZXing.BarcodeFormat.QR_CODE,
+            ZXing.BarcodeFormat.CODE_128,
             ZXing.BarcodeFormat.EAN_13
         ];
         hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-        hints.set(ZXing.DecodeHintType.TRY_HARDER, true); // Mencoba lebih teliti namun tetap cepat pada resolusi rendah
 
-        // Memulai scanner dengan hints
+        // 3. Mulai decoding
         codeReader.decodeFromVideoDevice(null, video, (result, err) => {
             if (result && !isProcessing) {
                 handleMatch(result.getText());
             }
-            // Jika err, library akan terus mencoba frame berikutnya secara otomatis
         }, hints);
 
     } catch (err) {
-        status.innerText = "Kamera tidak tersedia atau izin ditolak";
         console.error(err);
-    }
-}
-    } catch (err) {
-        status.innerText = "Kamera tidak tersedia";
+        status.innerText = "Kamera Error: " + err.message;
+        Swal.fire('Kamera Error', 'Pastikan izin kamera diberikan dan gunakan HTTPS', 'error');
     }
 }
 
 function handleMatch(kode) {
     const now = Date.now();
-
-    // ⛔ cegah scan double
-    if (now - lastScan < 2000) return;
+    if (now - lastScan < 2500) return; // Jeda antar scan
     lastScan = now;
 
     isProcessing = true;
-
     wrapper.classList.add('capturing');
-    if (navigator.vibrate) navigator.vibrate(150);
-
-    status.innerText = "Terdeteksi: " + kode;
+    if (navigator.vibrate) navigator.vibrate(100);
+    
+    status.innerText = "Mengecek: " + kode;
 
     fetch(`${API_URL}/search?sheet=Master&kode=${kode}`)
         .then(res => res.json())
         .then(data => {
-            if (data.length > 0) {
+            if (data && data.length > 0) {
                 const siswa = data[0];
-
                 Swal.fire({
                     title: 'BERHASIL',
                     text: siswa.nama,
@@ -162,8 +154,6 @@ function handleMatch(kode) {
                 });
 
                 const skrg = new Date();
-
-                // kirim log
                 fetch(`${API_URL}?sheet=Log`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -173,12 +163,15 @@ function handleMatch(kode) {
                         "NAMA": siswa.nama
                     })
                 });
-
             } else {
-                Swal.fire('Error', 'Siswa tidak ditemukan', 'error');
+                Swal.fire('Gagal', 'Kode tidak terdaftar', 'error');
             }
-
-            // ⏱ jeda scan (lebih cepat dari sebelumnya)
+        })
+        .catch(err => {
+            console.error("Fetch Error:", err);
+            status.innerText = "Koneksi Bermasalah";
+        })
+        .finally(() => {
             setTimeout(() => {
                 isProcessing = false;
                 wrapper.classList.remove('capturing');
@@ -187,7 +180,8 @@ function handleMatch(kode) {
         });
 }
 
-window.onload = initScanner;
+// Inisialisasi saat halaman selesai dimuat
+window.addEventListener('load', initScanner);
 </script>
 
 </body>
